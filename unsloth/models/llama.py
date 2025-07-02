@@ -604,9 +604,7 @@ def LlamaModel_fast_forward(
 
     # retrieve input_ids and inputs_embeds
     if input_ids is not None and inputs_embeds is not None:
-        thinking_embeds = inputs_embeds
-        batch_size, seq_length, _ = inputs_embeds.shape
-        # raise ValueError("Unsloth: You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
+        raise ValueError("Unsloth: You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
     elif input_ids is not None:
         batch_size, seq_length = input_ids.shape
     elif inputs_embeds is not None:
@@ -657,16 +655,8 @@ def LlamaModel_fast_forward(
     pass
 
     # Embed positions
-    if input_ids is not None:
+    if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
-
-    thinking_mask = kwargs.get('thinking_mask')
-    if thinking_mask is not None:
-        new_inputs_embeds = inputs_embeds.clone()
-        new_inputs_embeds[thinking_mask] = self.thinking_residual(
-            inputs_embeds[thinking_mask], thinking_embeds[thinking_mask],
-        )[0].to(inputs_embeds.dtype)
-        inputs_embeds = new_inputs_embeds
 
     inputs_embeds = inputs_embeds.to(_get_dtype(self.config.torch_dtype))
 
@@ -927,7 +917,6 @@ def LlamaModel_fast_forward_inference(
     past_key_values,
     position_ids,
     attention_mask = None,
-    *args, **kwargs,
 ):
     input_ids = input_ids[:,:self.max_seq_length]
     bsz, q_len = input_ids.shape
@@ -936,19 +925,6 @@ def LlamaModel_fast_forward_inference(
 
     X = self.model.embed_tokens(input_ids)
     X = X.to(_get_dtype(self.config.torch_dtype))
-
-    is_thinking = kwargs.get('is_thinking')
-    last_thinking_states = kwargs.get('last_thinking_states')
-    if is_thinking is not None and last_thinking_states is not None:
-        thinking_embeds = last_thinking_states
-        X_hat, a_t = self.model.thinking_residual(
-            X, last_thinking_states.unsqueeze(1),
-        )
-        embeds_ratio = a_t.mean(-1).squeeze()
-        embeds_ratio[~torch.tensor(is_thinking)] = 1.
-        X[is_thinking] = X_hat[is_thinking].to(X.dtype)
-
-
     bsz, q_len, hd = X.shape
     assert(q_len == 1)
     # Get saved buffers to reduce memory movement
@@ -1022,7 +998,7 @@ def LlamaModel_fast_forward_inference(
     return BaseModelOutputWithPast(
         last_hidden_state = X,
         past_key_values = next_decoder_cache,
-        hidden_states = [] if is_thinking is None else [thinking_embeds, is_thinking, embeds_ratio],
+        hidden_states = [],
         attentions = [],
     )
 pass
@@ -1053,7 +1029,6 @@ def CausalLM_fast_forward(fast_forward_inference):
                 past_key_values,
                 position_ids = position_ids,
                 attention_mask = attention_mask,
-                *args, **kwargs,
             )
         else:
             causal_mask = xformers.attn_bias.LowerTriangularMask() if HAS_XFORMERS else None
@@ -1076,7 +1051,6 @@ def CausalLM_fast_forward(fast_forward_inference):
                 output_attentions = output_attentions,
                 output_hidden_states = output_hidden_states,
                 return_dict = return_dict,
-                *args, **kwargs,
             )
         pass
         hidden_states = outputs[0]
@@ -2263,7 +2237,6 @@ class FastLlamaModel:
 
         train_lm_head = False
         train_embed_tokens = False
-        train_thinking_residual = False
         final_modules = []
         for module in target_modules:
             if module == "lm_head":
@@ -2283,11 +2256,6 @@ class FastLlamaModel:
                 train_embed_tokens = True
                 if modules_to_save is None: modules_to_save = ["embed_tokens"]
                 else: modules_to_save.append("embed_tokens")
-
-            elif "thinking_residual" in module:
-                train_thinking_residual = True
-                if modules_to_save is None: modules_to_save = [module]
-                else: modules_to_save = list(set(modules_to_save).add(module))
 
             else:
                 try:
@@ -2339,12 +2307,9 @@ class FastLlamaModel:
                     train_lm_head = True
                 elif module == "embed_tokens":
                     train_embed_tokens = True
-                elif "thinking_residual" in module:
-                    train_thinking_residual = True
                 else:
                     raise TypeError(
-                        f"Unsloth: Module = {module} is not allowed. Only 'lm_head', 'embed_tokens' "
-                        "and 'thinking_residual' components are allowed."
+                        f"Unsloth: Module = {module} is not allowed. Only 'lm_head' and 'embed_tokens' is allowed."
                     )
             pass
         pass
@@ -2453,29 +2418,6 @@ class FastLlamaModel:
                 .to(device = "cuda", dtype = new_dtype, non_blocking = True)
             model.get_output_embeddings().modules_to_save.default.requires_grad_(True)
         pass
-
-        if train_thinking_residual:
-            print("Unsloth: Training thinking_residual in mixed precision to save VRAM")
-            try:
-                new_dtype = model.get_input_embeddings().weight.dtype
-            except:
-                new_dtype = model.get_input_embeddings().modules_to_save.default.weight.dtype
-
-            for module in modules_to_save:
-                if "thinking_residual_gate_r" in module:
-                    assert(hasattr(model.model.model.thinking_residual_gate_r, "modules_to_save"))
-                    model.model.model.thinking_residual_gate_r.modules_to_save.default\
-                        .to(device = "cuda", dtype = new_dtype, non_blocking = True)
-                    model.model.model.thinking_residual_gate_r.modules_to_save.default.requires_grad_(True)
-                if "thinking_residual_gate_i" in module:
-                    assert(hasattr(model.model.model.thinking_residual_gate_i, "modules_to_save"))
-                    model.model.model.thinking_residual_gate_i.modules_to_save.default\
-                        .to(device = "cuda", dtype = new_dtype, non_blocking = True)
-                    model.model.model.thinking_residual_gate_i.modules_to_save.default.requires_grad_(True)
-                if "thinking_residual_Lambda" in module:
-                    model.model.model.thinking_residual_Lambda.modules_to_save.default\
-                        .to(device = "cuda", dtype = torch.float32, non_blocking = True)
-                    model.model.model.thinking_residual_Lambda.modules_to_save.default.requires_grad_(True)
 
         # Patch tokenizer to pad to the right
         internal_model = model
