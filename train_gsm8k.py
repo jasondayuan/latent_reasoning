@@ -5,7 +5,7 @@ from unsloth import FastLanguageModel, PatchFastRL
 import os
 import argparse
 from transformers import TrainingArguments, Trainer # Has to ensure this is run from the repo directory or else it will import the original Trainer
-from latent_trainer import LatentTrainer
+from trl.trainer import LatentTrainer
 from datasets import load_dataset, Dataset
 from patch import patch_trainer_optimizer
 from utils import *

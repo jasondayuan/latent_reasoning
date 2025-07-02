@@ -1,5 +1,6 @@
 from transformers import Trainer
-from trl import maybe_apply_chat_template
+from ..data_utils import apply_chat_template, is_conversational, maybe_apply_chat_template
+from ..models import create_reference_model, prepare_deepspeed, unwrap_model_for_generation
 
 class LatentTrainer(Trainer):
 
@@ -28,20 +29,20 @@ class LatentTrainer(Trainer):
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
-        # Regular generation path
-        with unwrap_model_for_generation(self.model, self.accelerator) as unwrapped_model:
-            # Generate the prompt completion ids
-            prompt_completion_ids = unwrapped_model.generate(
-                input_ids=prompt_ids,
-                attention_mask=prompt_mask,
-                max_new_tokens=self.args.max_completion_length,
-                do_sample=False,
-                use_cache=True,
-            )
+        # # Regular generation path
+        # with unwrap_model_for_generation(self.model, self.accelerator) as unwrapped_model:
+        #     # Generate the prompt completion ids
+        #     prompt_completion_ids = unwrapped_model.generate(
+        #         input_ids=prompt_ids,
+        #         attention_mask=prompt_mask,
+        #         max_new_tokens=self.args.max_completion_length,
+        #         do_sample=False,
+        #         use_cache=True,
+        #     )
 
-        # Compute prompt length and extract completion ids
-        prompt_length = prompt_ids.size(1)
-        prompt_ids = prompt_completion_ids[:, :prompt_length]
-        completion_ids = prompt_completion_ids[:, prompt_length:]
+        # # Compute prompt length and extract completion ids
+        # prompt_length = prompt_ids.size(1)
+        # prompt_ids = prompt_completion_ids[:, :prompt_length]
+        # completion_ids = prompt_completion_ids[:, prompt_length:]
 
         import pdb; pdb.set_trace()

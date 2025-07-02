@@ -18,6 +18,7 @@ from ..import_utils import OptionalDependencyNotAvailable, _LazyModule, is_diffu
 
 
 _import_structure = {
+    "latent_trainer": ["LatentTrainer"],
     "alignprop_config": ["AlignPropConfig"],
     "alignprop_trainer": ["AlignPropTrainer"],
     "bco_config": ["BCOConfig"],
@@ -89,6 +90,7 @@ else:
     _import_structure["ddpo_trainer"] = ["DDPOTrainer"]
 
 if TYPE_CHECKING:
+    from .latent_trainer import LatentTrainer
     from .alignprop_config import AlignPropConfig
     from .alignprop_trainer import AlignPropTrainer
     from .bco_config import BCOConfig
